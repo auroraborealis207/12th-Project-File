@@ -1,0 +1,1754 @@
+from tkinter import *
+from PIL import Image,ImageTk
+import time
+import pickle
+
+'''catalougues all Pieces'''
+pieces=[]
+
+'''catalouges all pieces that are lost in the game'''
+removed=[]
+
+'''catalougues all moves [init,final,peice,removed peice]'''
+moves=[]
+
+'''contains all objects of new pieces created due to pawn change'''
+
+init_pos=[]
+
+piece_pos=[]
+
+pawn_changed=[]
+
+prev_games=[]
+
+undone=[]
+
+current_game_no=0
+
+loaded_game_no=0
+
+last_file_no=0
+
+r=0
+
+check_counter=0
+
+'''says if one of the kings is in check,and what king is in check'''
+
+def undo(event,update_removed,update):
+    '''Undo's the last move done'''
+    
+    global piece_pos
+    
+    init_pos,final_pos,piece_moved,removed_piece=moves[-1]
+    undone.append(moves[-1])
+    moves.pop(-1)
+    #print(init_pos,final_pos,piece_moved,removed_piece)
+
+    if isinstance(piece_moved,pawn) and final_pos[0] in [1,8]:
+        pieces.remove(pawn_changed[-1])
+        del pawn_changed[-1]
+
+    if removed:
+        removed.remove(removed_piece)
+        pieces.append(removed_piece)
+        piece_pos[tuple(final_pos)]=removed_piece
+        update_removed()
+    else:
+        del piece_pos[tuple(final_pos)]
+    
+    piece_pos[tuple(init_pos)]=piece_moved
+    piece_moved.movec-=1
+    piece_moved.position=init_pos
+    update()
+
+def redo(event,update_removed,update,bg_canvas,pawn_window,pawn_canvas):
+    '''Redo's the last move undone'''
+    undone[-1][2].move(undone[-1]					  [1],update_removed,update,bg_canvas,pawn_window,pawn_canvas)
+    undone.pop(-1)
+    update()
+
+def ifcheck(return_value=0,king=0):
+    global check_counter
+    font1=("Cabin Sketch",30,'bold')
+    if return_value and king:
+        if king.position in king.all_move():
+            return True
+        else:
+            return False
+    else:
+        print("Inside if check")
+        for king in [k1,k3]:
+            colour=king.colour
+            
+            if colour=="B":
+                colour="Black"
+            elif colour=="W":
+                colour=="White"
+
+            if king.position in king.all_move():
+                
+                if ifcheckmate(king):
+                    print("Inside check mate block")
+                    Check=Toplevel()    
+                    check=Label(Check,font=font1,text="Check Mate\n"+colour)
+                    check.pack()
+                    Check.grab_set()
+                    Check.mainloop()
+                    root.destroy()
+                else:
+                    print("in check block")
+                    check_counter=king #sets value to check counter 
+                    Check=Toplevel()    
+                    check=Label(Check,font=font1,text="Check\n"+colour)
+                    check.pack()
+                    Check.grab_set()
+                    Check.mainloop()
+                    
+def save_file(root):
+    print("in save file")
+    
+    modified_moves=[]
+    for move in moves:
+        modified_moves.append([move[0],move[1]])
+        
+    recent_file=open(r"Chess Games\Game "+str(current_game_no)+".chess","wb")
+    pickle.dump(modified_moves,recent_file)
+    recent_file.close()
+
+    current_game_file=open(r"Chess Games\Recent Game no.txt","w")
+    current_game_file.write(str(current_game_no))
+    current_game_file.close()
+    
+    root.destroy()
+    
+    
+def ifcheckmate(king):
+    return not bool(king.incheckmoves())
+
+def set_all_position():
+    '''sets all initial piece position'''
+    for piece in pieces:
+        piece.position=init_pos[piece]
+        
+def access_colour(pos):
+    '''Accesses the colour of the peice in that positon'''
+    if tuple(pos) in piece_pos:
+        return piece_pos[tuple(pos)].colour
+        
+def all_piece_pos():
+    '''returns all the peices position'''
+    return piece_pos.keys()
+
+
+class piece:
+    
+    points=0
+    position=0
+    movec=0  #counts the moves of the piece
+    
+    def __init__(self,colour):
+        '''sets the pieces colour and adds the piece to the list of all pieces'''
+        self.colour=colour
+        pieces.append(self)
+        
+    def move(self,move_to_pos,update_removed,update,bg_canvas,pawn_window,pawn_canvas):#change to meaning ful names -note
+        '''moves the piece from original position to move_to_pos'''
+
+        global piece_pos
+        if self.check_if_pinned():
+            raise KeyError
+        if move_to_pos in self.move_possible():#checks if the move is valid
+            if bool(check_counter):
+                if [piece,move_to_pos] not in check_counter.incheckmoves():
+                    raise KeyError
+            
+            if tuple(move_to_pos) in piece_pos:#checks if the piece exists in new position
+                
+                taken_piece=piece_pos[tuple(move_to_pos)]
+                
+                #removes the piece from the list of peices
+                pieces.remove(taken_piece)
+                
+                #Adds the piece to Removed list
+                removed.append(taken_piece)
+                
+                #catalouges the move
+                moves.append([self.position,move_to_pos,self,taken_piece])
+                
+                update_removed()
+            else:
+                moves.append([self.position,move_to_pos,self,0])
+            
+            #deletes the positon of the piece
+            del piece_pos[tuple(self.position)]
+            
+            #changes the positon of the pieces
+            self.position=move_to_pos
+            
+            #makes the new positon move_to_pos
+            piece_pos[tuple(move_to_pos)]=self
+            
+            #increases the move count
+            self.movec+=1
+            
+
+        else:
+            raise KeyError# if the move is not possible,raises error which 
+                          # refreshes the screen (graphics)
+                          
+        if self.name=="p" and (move_to_pos[1] in (1,8)):#check if pawn has 
+            update()                            #reached the final square
+            self.change(lambda:update(),bg_canvas,pawn_window,pawn_canvas)
+
+    def check_if_pinned(self):
+        if_pinned=0
+        if self.colour=="W":
+            king=k1
+        else:
+            king=k3
+        if not(ifcheck(True,king)):
+            for possible in self.move_possible():
+                count=0
+                break_counter=0
+                try:
+                    prev_piece=piece_pos[tuple(possible)]
+                    count=1
+                except:
+                    pass
+                piece_pos[tuple(possible)]=piece
+                    
+                if ifcheck(True,king):
+                    if_pinned=True
+                    break_counter=1
+                else:
+                    if_pinned=False
+
+                if count:
+                    piece_pos[tuple(possible)]=prev_piece
+                    piece_pos[tuple(piece.position)]=piece
+                else:
+                    del piece_pos[tuple(possible)]
+                    piece_pos[tuple(piece.position)]=piece
+
+                if break_counter:
+                    break
+
+        return if_pinned
+                
+    def all_move(self):
+        
+        #returns all the moves of the opponents pieces
+        all_move=list()
+        
+        if isinstance(self,king):#specially created for king as king can not
+                                 #move into enemy fire
+            for chess_piece in piece_pos.values():
+                
+                if chess_piece.colour!=self.colour and not(isinstance(chess_piece,king)):#removes king as this leads to infinte loop
+
+                    try:
+                        if (isinstance(chess_piece,pawn)):#to only include pawn attacking moves
+                            for possible in chess_piece.move_possible(attack_counter=1,if_defense_present=1):
+                                if possible not in all_move:
+                                    all_move.append(possible)
+                        else:
+                            for possible in chess_piece.move_possible(if_defense_present=1):
+                                if possible not in all_move:
+                                    all_move.append(possible)
+
+                    except TypeError:
+                        pass
+
+##        else:#for regular pieces gives 
+##
+##            for piece in piece_pos.values():
+##
+##                if piece.colour == self.colour:
+##
+##                    try:
+##                        for possible in piece.move_possible():
+##                            if possible not in all_move:
+##                                all_move.append(possible)
+##                                
+##                    except TypeError:
+##                        pass
+##
+        
+        return all_move
+
+
+#Pieces Class
+    
+class knight(piece):
+    points=3
+    name='n'
+    
+    def move_possible(self,if_defense_present=0):
+        '''returns all possible moves of knight'''
+        
+        pos=self.position
+        x_pos,y_pos=pos #x,y coordinates of the knight
+        possible_moves=[]
+        
+        if x_pos<7:
+
+            if y_pos<8:
+                possible_moves.append([x_pos+2,y_pos+1])
+            if y_pos>1:
+                possible_moves.append([x_pos+2,y_pos-1])
+                
+        if x_pos<8:
+
+            if y_pos<7:
+                possible_moves.append([x_pos+1,y_pos+2])
+            if y_pos>2:
+                possible_moves.append([x_pos+1,y_pos-2])
+                
+        if x_pos>2:
+
+            if y_pos<8:
+                possible_moves.append([x_pos-2,y_pos+1])
+            if y_pos>1:
+                possible_moves.append([x_pos-2,y_pos-1])
+                
+        if x_pos>1:
+
+            if y_pos<7:
+                possible_moves.append([x_pos-1,y_pos+2])
+            if y_pos>2:
+                possible_moves.append([x_pos-1,y_pos-2])
+
+        if not (if_defense_present):       
+            for possible in possible_moves:
+                if tuple(possible) in piece_pos:
+                    if piece_pos[tuple(possible)].colour == self.colour:
+                        possible_moves.remove(possible)
+           
+        return possible_moves
+
+
+class bishop(piece):
+    #returns all possible moves of bishop
+    points=3
+    name='b'
+
+    def move_possible(self,if_defense_present=0):
+        
+        pos=self.position
+        x_pos,y_pos=pos
+        possible_move=[]
+
+        #each double for loop ,is for each diagonal,as the diagonal is terminated at a piece 
+
+        for x_dev in range(1,9-x_pos):#dev is short for deviation
+            a=False
+
+            for y_dev in range(1,9-y_pos):
+
+                if x_dev==y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+
+                    if tuple(possible) in piece_pos:#if piece is present ,terminate loop
+                        a=True
+                        if not(not(if_defense_present)):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+
+                    possible_move.append(possible)
+
+            if a:
+                break
+            
+        for x_dev in range(1,9-x_pos):
+            a=False
+            
+            for y_dev in range(-1,-y_pos,-1):
+                
+                if x_dev==-y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+                    
+                    if tuple(possible) in piece_pos:
+                        a=True
+                        
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+                    
+                    possible_move.append(possible)
+            if a:
+                break
+            
+        for x_dev in range(-1,-x_pos,-1):
+            a=False
+
+            for y_dev in range(1,9-y_pos):
+
+                if x_dev==-y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+
+                    if tuple(possible) in piece_pos:
+                        a=True
+
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+
+                    possible_move.append(possible)
+
+            if a:
+                break
+            
+        for x_dev in range(-1,-x_pos,-1):
+            a=False
+
+            for y_dev in range(-1,-y_pos,-1):
+
+                if x_dev==y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+
+                    if tuple(possible) in piece_pos:
+                        a=True
+
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+
+                    possible_move.append(possible)
+
+            if a:
+                break
+
+        return possible_move
+
+class rook(piece):
+    #returns all possible moves of rook
+    points=5
+    name='r'
+    def move_possible(self,if_defense_present=0):
+        pos=self.position
+        x_pos,y_pos=pos
+        possible_move=list()
+        #each for loop ,is for each line,as the line is terminated at a piece
+        
+        for x_dev in range(1,9-x_pos):
+            possible=[x_pos+x_dev,y_pos]
+
+            if tuple(possible) in piece_pos:#if piece is present ,terminate loop
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                            possible_move.append(possible)
+                else:
+                        possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+            
+        for x_dev in range(-1,-x_pos,-1):
+            possible=[x_pos+x_dev,y_pos]
+
+            if tuple(possible) in piece_pos:
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                        possible_move.append(possible)
+                else:
+                    possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+            
+        for y_dev in range(1,9-y_pos):
+            possible=[x_pos,y_pos+y_dev]
+
+            if tuple(possible) in piece_pos:
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                        possible_move.append(possible)
+                else:
+                    possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+            
+        for y_dev in range(-1,-y_pos,-1):
+            possible=[x_pos,y_pos+y_dev]
+
+            if tuple(possible) in piece_pos:
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                        possible_move.append(possible)
+                else:
+                    possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+
+        return possible_move 
+
+class queen(piece):
+    points=9
+    name='q'
+    def move_possible(self,if_defense_present=0):
+        '''returns all possible moves of Queen
+            by combining the bishop and knight'''
+        pos=self.position
+        x_pos,y_pos=pos
+        possible_move=[]
+        
+        #Bishop Moves
+        for x_dev in range(1,9-x_pos):#dev is short for deviation
+            a=False
+
+            for y_dev in range(1,9-y_pos):
+
+                if x_dev==y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+
+                    if tuple(possible) in piece_pos:#if piece is present ,terminate loop
+                        a=True
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+
+                    possible_move.append(possible)
+
+            if a:
+                break
+            
+        for x_dev in range(1,9-x_pos):
+            a=False
+            
+            for y_dev in range(-1,-y_pos,-1):
+                
+                if x_dev==-y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+                    
+                    if tuple(possible) in piece_pos:
+                        a=True
+                        
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+                    
+                    possible_move.append(possible)
+            if a:
+                break
+            
+        for x_dev in range(-1,-x_pos,-1):
+            a=False
+
+            for y_dev in range(1,9-y_pos):
+
+                if x_dev==-y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+
+                    if tuple(possible) in piece_pos:
+                        a=True
+
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+
+                    possible_move.append(possible)
+
+            if a:
+                break
+            
+        for x_dev in range(-1,-x_pos,-1):
+            a=False
+
+            for y_dev in range(-1,-y_pos,-1):
+
+                if x_dev==y_dev:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+
+                    if tuple(possible) in piece_pos:
+                        a=True
+
+                        if not(if_defense_present):
+                            if self.colour!=access_colour(possible):#check if opponent piece
+                                possible_move.append(possible)
+                        else:
+                            possible_move.append(possible)
+                        break
+
+                    possible_move.append(possible)
+
+            if a:
+                break
+
+
+        #Rook Moves
+        for x_dev in range(1,9-x_pos):
+            possible=[x_pos+x_dev,y_pos]
+
+            if tuple(possible) in piece_pos:#if piece is present ,terminate loop
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                            possible_move.append(possible)
+                else:
+                        possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+            
+        for x_dev in range(-1,-x_pos,-1):
+            possible=[x_pos+x_dev,y_pos]
+
+            if tuple(possible) in piece_pos:
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                        possible_move.append(possible)
+                else:
+                    possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+            
+        for y_dev in range(1,9-y_pos):
+            possible=[x_pos,y_pos+y_dev]
+
+            if tuple(possible) in piece_pos:
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                        possible_move.append(possible)
+                else:
+                    possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+            
+        for y_dev in range(-1,-y_pos,-1):
+            possible=[x_pos,y_pos+y_dev]
+
+            if tuple(possible) in piece_pos:
+
+                if not(if_defense_present):
+                    if self.colour!=access_colour(possible):#check if opponent piece
+                        possible_move.append(possible)
+                else:
+                    possible_move.append(possible)
+                break
+
+            possible_move.append(possible)
+                        
+        return possible_move
+
+
+class king(piece):
+    
+    name='k'
+    
+    def no_king_move(self):
+        '''returns all possible moves of king'''
+        pos=self.position
+        x_pos,y_pos=pos
+        possible_moves=[]
+        
+        for x_dev in range(-1,2):
+            
+            for y_dev in range(-1,2):#iterates for 8 moves of king
+
+                if x_dev==0 and y_dev==0:
+        
+                    #removes the kings location from the possible moves
+                    pass
+
+                elif (1>x_pos+x_dev or x_pos+x_dev>8 or 1>y_pos+y_dev or
+                      y_pos+y_dev>8):
+                    
+                    #removes moves which go off the chess board
+                    pass
+
+                else:
+                    possible=[x_pos+x_dev,y_pos+y_dev]
+                    if not (list(possible) in self.all_move()):
+                        if tuple(possible) in piece_pos:
+                            if self.colour!=access_colour(possible):
+                                possible_moves.append(possible)
+                        else:
+                            possible_moves.append(possible)
+                            
+        return possible_moves
+    
+    def move_possible(self):
+        
+        possible_move=self.no_king_move()
+        no_king_k1=k1.no_king_move()
+        no_king_k3=k3.no_king_move()
+        for move_of_k1 in no_king_k1:
+            for move_of_k3 in no_king_k3:
+                if move_of_k1==move_of_k3:
+                    possible_move.remove(move_of_k3)
+                            
+        return possible_move
+    
+    def incheckmoves(self ,for_analysis=0):
+        
+        all_moves_possible_in_check=list()
+        count=0
+        
+        for chess_piece in piece_pos.values():
+            
+            if chess_piece.colour == self.colour:
+                
+                for possible in chess_piece.move_possible():
+                    count=0
+                    try:
+                        prev_piece=piece_pos[tuple(possible)]
+                        count=1
+                    except:
+                        pass
+                    
+                    piece_pos[tuple(possible)]=piece
+                    
+                    if not ifcheck(True,self):
+                        if for_analysis:
+                            all_moves_possible_in_check.append(possible)
+                        else:    
+                            all_moves_possible_in_check.append([piece,possible])
+
+                    if count:
+                        piece_pos[tuple(possible)]=prev_piece
+                        piece_pos[tuple(chess_piece.position)]=chess_piece
+                    else:
+                        piece_pos[tuple(chess_piece.position)]=chess_piece
+                        del piece_pos[tuple(possible)]
+                        
+        return all_moves_possible_in_check
+        
+
+class pawn(piece):
+
+    points=1
+    name='p'
+    
+    def move_possible(self,attack_counter=0,if_defense_present=0):
+        '''returns all possible moves of pawn'''
+        pos=self.position
+        x_pos,y_pos=pos
+
+        side_attack=[-1,+1]
+        possible_move=[]
+        if self.colour=="W":
+            direction=+1
+        elif self.colour=="B":
+            direction=-1
+            
+        if attack_counter:#Special for only attacking moves
+            for x_dev in side_attack:
+                
+                possible=[x_pos+x_dev,y_pos+direction]
+                possible_move.append(possible)
+                
+        else:
+            possible=[x_pos,y_pos+direction]
+            
+            if tuple(possible) not in piece_pos:
+                possible_move.append(possible)
+                
+                if self.movec==0 and tuple([x_pos,y_pos+2*direction]) not in piece_pos:
+                    possible_move.append([x_pos,y_pos+2*direction])
+                    
+            for x_dev in side_attack:
+                possible=[x_pos+x_dev,y_pos+direction]
+                if tuple(possible) in piece_pos:
+                    
+                    if not(if_defense_present):
+                        if access_colour(possible)!=self.colour:
+                            possible_move.append(possible)
+                            
+                    else:
+                        possible_move.append(possible)
+      
+        return possible_move
+    
+    def change(self,update,bg_canvas,pawn_window,pawn_canvas):
+        '''Function for changing the pawn to the desired piece'''
+
+        def New_Piece(piece_name,*sarg):
+            global pawn_changed
+            nonlocal position,colour
+            if piece_name=="b":
+                pawn_changed.append(bishop(colour))
+            elif piece_name=="q":
+                pawn_changed.append(queen(colour))
+            elif piece_name=="r":
+                pawn_changed.append(rook(colour))
+            else:
+                pawn_changed.append(knight(colour))
+
+            pawn_changed[-1].position=list(position)
+            piece_pos[tuple(position)]=pawn_changed[-1]
+            update()
+            bg_canvas.itemconfigure(pawn_window, state='hidden')
+            ifcheck()
+        
+##        Pawn_Display=Toplevel()
+##        Pawn_Display.geometry("+500+500")
+##        Pawn_Display.geometry("250x500")
+##        Pawn_Display.overrideredirect(True)
+
+            
+        position=self.position
+        colour=self.colour
+
+        pawn_canvas.tag_bind('bishop', '<ButtonPress-1>',lambda event,piece_name='b':New_Piece(piece_name,event))
+        pawn_canvas.tag_bind('knight', '<ButtonPress-1>',lambda event,piece_name='k':New_Piece(piece_name,event))
+        pawn_canvas.tag_bind('rook', '<ButtonPress-1>',lambda event,piece_name='r':New_Piece(piece_name,event))
+        pawn_canvas.tag_bind('queen', '<ButtonPress-1>',lambda event,piece_name='q':New_Piece(piece_name,event))
+        bg_canvas.itemconfigure(pawn_window, state='normal')
+
+##        Bishop=Button(Pawn_Display,text="Bishop",image=bishop_image,borderwidth=0
+##                      ,command=lambda pos=position,col=colour:New_Piece('b',pos,col))
+##        Rook=Button(Pawn_Display,text="Rook",image=rook_image,borderwidth=0
+##                    ,command=lambda pos=position,col=colour:New_Piece('r',pos,col))
+##        Queen=Button(Pawn_Display,text="Queen",image=queen_image,borderwidth=0
+##                     ,command=lambda pos=position,col=colour:New_Piece('q',pos,col))
+##        Knight=Button(Pawn_Display,text="Knight",image=knight_image,borderwidth=0
+##                      ,command=lambda pos=position,col=colour:New_Piece('n',pos,col))
+
+##        Bishop.grid(column=0,row=0)
+##        Rook.grid(column=0,row=1)
+##        Queen.grid(column=0,row=2)
+##        Knight.grid(column=0,row=3)
+        
+##        Pawn_Display.grab_set()
+##        Pawn_Display.mainloop()
+
+'''creating all the objects of the Pieces,  1,2-reserved for White
+                                            3,4-reserved for Black'''
+k1=king("W")
+k3=king("B")
+b1=bishop("W")
+b2=bishop("W")
+b3=bishop("B")
+b4=bishop("B")
+r1=rook("W")
+r2=rook("W")
+r3=rook("B")
+r4=rook("B")
+q1=queen("W")
+q3=queen("B")
+n1=knight("W")
+n2=knight("W")
+n3=knight("B")
+n4=knight("B")
+p11=pawn("W")
+p12=pawn("W")
+p13=pawn("W")
+p14=pawn("W")
+p15=pawn("W")
+p16=pawn("W")
+p17=pawn("W")
+p18=pawn("W")
+p31=pawn("B")
+p32=pawn("B")
+p33=pawn("B")
+p34=pawn("B")
+p35=pawn("B")
+p36=pawn("B")
+p37=pawn("B")
+p38=pawn("B")
+
+
+
+'''references all Piece objects to their intial position'''
+init_pos={r1:[1,1],n1:[2,1],b1:[3,1],k1:[4,1],q1:[5,1],b2:[6,1],n2:[7,1],r2:[8,1]
+          ,p11:[1,2],p12:[2,2],p13:[3,2],p14:[4,2],p15:[5,2],p16:[6,2],p17:[7,2],p18:[8,2]
+          ,r3:[1,8],n3:[2,8],b3:[3,8],k3:[4,8],q3:[5,8],b4:[6,8],n4:[7,8],r4:[8,8]
+          ,p31:[1,7],p32:[2,7],p33:[3,7],p34:[4,7],p35:[5,7],p36:[6,7],p37:[7,7],p38:[8,7]
+                }
+'''references the position of Piece to Piece object'''
+piece_pos={(1,1):r1,(2,1):n1,(3,1):b1,(4,1):b1,(4,1):k1,(5,1):q1,(6,1):b2,(7,1):n2,(8,1):r2
+                ,(1,2):p11,(2,2):p12,(3,2):p13,(4,2):p14,(5,2):p15,(6,2):p16,(7,2):p17,(8,2):p18
+                ,(1,8):r3,(2,8):n3,(3,8):b3,(4,8):k3,(5,8):q3,(6,8):b4,(7,8):n4,(8,8):r4
+                ,(1,7):p31,(2,7):p32,(3,7):p33,(4,7):p34,(5,7):p35,(6,7):p36,(7,7):p37,(8,7):p38
+                }
+
+set_all_position()
+
+'''Graphics'''
+def Game():
+
+    '''create screen'''
+    root=Tk()
+    root.title("Chess")
+    height_screen=root.winfo_screenheight()
+    width_screen=root.winfo_screenwidth()
+    root.geometry(str(width_screen)+"x"+str(height_screen))
+    root.geometry("+0+0")
+    
+    '''Images'''
+
+
+    '''White Wood Images'''
+
+    ##RookWW=Image.open(r"Images\White Wood\Rook W W.png")
+    ##RookWW=RookWW.resize((80,80))
+    ##QueenWW=Image.open(r"Images\White Wood\Queen W W.png")
+    ##QueenWW=QueenWW.resize((80,80))
+    ##KingWW=Image.open(r"Images\White Wood\King W W.png")
+    ##KingWW=KingWW.resize((80,80))
+    ##PawnWW=Image.open(r"Images\White Wood\Pawn W W.png")
+    ##PawnWW=PawnWW.resize((80,80))
+    ##KnightWW=Image.open(r"Images\White Wood\Knight W W.png")
+    ##KnightWW=KnightWW.resize((80,80))
+    ##BishopWW=Image.open(r"Images\White Wood\Bishop W W.png")
+    ##BishopWW=BishopWW.resize((80,80))
+    ##RookBW=Image.open(r"Images\White Wood\Rook B W.png")
+    ##RookBW=RookBW.resize((80,80))
+    ##QueenBW=Image.open(r"Images\White Wood\Queen B W.png")
+    ##QueenBW=QueenBW.resize((80,80))
+    ##KingBW=Image.open(r"Images\White Wood\King B W.png")
+    ##KingBW=KingBW.resize((80,80))
+    ##PawnBW=Image.open(r"Images\White Wood\Pawn B W.png")
+    ##PawnBW=PawnBW.resize((80,80))
+    ##KnightBW=Image.open(r"Images\White Wood\Knight B W.png")
+    ##KnightBW=KnightBW.resize((80,80))
+    ##BishopBW=Image.open(r"Images\White Wood\Bishop B W.png")
+    ##BishopBW=BishopBW.resize((80,80))
+
+
+
+    '''Black Wood Images'''
+
+    ##RookWB=Image.open(r"Images\Black Wood\Rook W B.png")
+    ##RookWB=RookWB.resize((80,80))
+    ##QueenWB=Image.open(r"Images\Black Wood\Queen W B.png")
+    ##QueenWB=QueenWB.resize((80,80))
+    ##KingWB=Image.open(r"Images\Black Wood\King W B.png")
+    ##KingWB=KingWB.resize((80,80))
+    ##PawnWB=Image.open(r"Images\Black Wood\Pawn W B.png")
+    ##PawnWB=PawnWB.resize((80,80))
+    ##KnightWB=Image.open(r"Images\Black Wood\Knight W B.png")
+    ##KnightWB=KnightWB.resize((80,80))
+    ##BishopWB=Image.open(r"Images\Black Wood\Bishop W B.png")
+    ##BishopWB=BishopWB.resize((80,80))
+    ##RookBB=Image.open(r"Images\Black Wood\Rook B B.png")
+    ##RookBB=RookBB.resize((80,80))
+    ##QueenBB=Image.open(r"Images\Black Wood\Queen B B.png")
+    ##QueenBB=QueenBB.resize((80,80))
+    ##KingBB=Image.open(r"Images\Black Wood\King B B.png")
+    ##KingBB=KingBB.resize((80,80))
+    ##PawnBB=Image.open(r"Images\Black Wood\Pawn B B.png")
+    ##PawnBB=PawnBB.resize((80,80))
+    ##KnightBB=Image.open(r"Images\Black Wood\Knight B B.png")
+    ##KnightBB=KnightBB.resize((80,80))
+    ##BishopBB=Image.open(r"Images\Black Wood\Bishop B B.png")
+    ##BishopBB=BishopBB.resize((80,80))
+
+
+
+    '''Blue Wood Images'''
+
+    RookWBlue=Image.open(r"Images\Blue Wood\Rook W Blue.png")
+    RookWBlue=RookWBlue.resize((80,80))
+    QueenWBlue=Image.open(r"Images\Blue Wood\Queen W Blue.png")
+    QueenWBlue=QueenWBlue.resize((80,80))
+    KingWBlue=Image.open(r"Images\Blue Wood\King W Blue.png")
+    KingWBlue=KingWBlue.resize((80,80))
+    PawnWBlue=Image.open(r"Images\Blue Wood\Pawn W Blue.png")
+    PawnWBlue=PawnWBlue.resize((80,80))
+    KnightWBlue=Image.open(r"Images\Blue Wood\Knight W Blue.png")
+    KnightWBlue=KnightWBlue.resize((80,80))
+    BishopWBlue=Image.open(r"Images\Blue Wood\Bishop W Blue.png")
+    BishopWBlue=BishopWBlue.resize((80,80))
+    RookBBlue=Image.open(r"Images\Blue Wood\Rook B Blue.png")
+    RookBBlue=RookBBlue.resize((80,80))
+    QueenBBlue=Image.open(r"Images\Blue Wood\Queen B Blue.png")
+    QueenBBlue=QueenBBlue.resize((80,80))
+    KingBBlue=Image.open(r"Images\Blue Wood\King B Blue.png")
+    KingBBlue=KingBBlue.resize((80,80))
+    PawnBBlue=Image.open(r"Images\Blue Wood\Pawn B Blue.png")
+    PawnBBlue=PawnBBlue.resize((80,80))
+    KnightBBlue=Image.open(r"Images\Blue Wood\Knight B Blue.png")
+    KnightBBlue=KnightBBlue.resize((80,80))
+    BishopBBlue=Image.open(r"Images\Blue Wood\Bishop B Blue.png")
+    BishopBBlue=BishopBBlue.resize((80,80))
+
+
+
+    '''Light Brown Wood Images'''
+
+    ##RookWL=Image.open(r"Images\L Brown Wood\Rook W L.png")
+    ##RookWL=RookWL.resize((80,80))
+    ##QueenWL=Image.open(r"Images\L Brown Wood\Queen W L.png")
+    ##QueenWL=QueenWL.resize((80,80))
+    ##KingWL=Image.open(r"Images\L Brown Wood\King W L.png")
+    ##KingWL=KingWL.resize((80,80))
+    ##PawnWL=Image.open(r"Images\L Brown Wood\Pawn W L.png")
+    ##PawnWL=PawnWL.resize((80,80))
+    ##KnightWL=Image.open(r"Images\L Brown Wood\Knight W L.png")
+    ##KnightWL=KnightWL.resize((80,80))
+    ##BishopWL=Image.open(r"Images\L Brown Wood\Bishop W L.png")
+    ##BishopWL=BishopWL.resize((80,80))
+    ##RookBL=Image.open(r"Images\L Brown Wood\Rook B L.png")
+    ##RookBL=RookBL.resize((80,80))
+    ##QueenBL=Image.open(r"Images\L Brown Wood\Queen B L.png")
+    ##QueenBL=QueenBL.resize((80,80))
+    ##KingBL=Image.open(r"Images\L Brown Wood\King B L.png")
+    ##KingBL=KingBL.resize((80,80))
+    ##PawnBL=Image.open(r"Images\L Brown Wood\Pawn B L.png")
+    ##PawnBL=PawnBL.resize((80,80))
+    ##KnightBL=Image.open(r"Images\L Brown Wood\Knight B L.png")
+    ##KnightBL=KnightBL.resize((80,80))
+    ##BishopBL=Image.open(r"Images\L Brown Wood\Bishop B L.png")
+    ##BishopBL=BishopBL.resize((80,80))
+
+    '''Transparent Images'''
+
+    RookW=Image.open(r"Images\BG Remove\Rook W T.png")
+    RookW=RookW.resize((80,80))
+    QueenW=Image.open(r"Images\BG Remove\Queen W T.png")
+    QueenW=QueenW.resize((80,80))
+    KingW=Image.open(r"Images\BG Remove\King W T.png")
+    KingW=KingW.resize((80,80))
+    PawnW=Image.open(r"Images\BG Remove\Pawn W T.png")
+    PawnW=PawnW.resize((80,80))
+    KnightW=Image.open(r"Images\BG Remove\Knight W T.png")
+    KnightW=KnightW.resize((80,80))
+    BishopW=Image.open(r"Images\BG Remove\Bishop W T.png")
+    BishopW=BishopW.resize((80,80))
+    RookB=Image.open(r"Images\BG Remove\Rook B T.png")
+    RookB=RookB.resize((80,80))
+    QueenB=Image.open(r"Images\BG Remove\Queen B T.png")
+    QueenB=QueenB.resize((80,80))
+    KingB=Image.open(r"Images\BG Remove\King B T.png")
+    KingB=KingB.resize((80,80))
+    PawnB=Image.open(r"Images\BG Remove\Pawn B T.png")
+    PawnB=PawnB.resize((80,80))
+    KnightB=Image.open(r"Images\BG Remove\Knight B T.png")
+    KnightB=KnightB.resize((80,80))
+    BishopB=Image.open(r"Images\BG Remove\Bishop B T.png")
+    BishopB=BishopB.resize((80,80))
+
+
+    '''Blanks'''
+
+
+    #Black_Wood=Image.open(r"Images\Black Wood.png")
+    #White_Wood=Image.open(r"Images\White Wood.jpg")
+    #L_Brown_Wood=Image.open(r"Images\L Brown Wood.jpg")
+    Blue_Wood=Image.open(r"Images\Blue Wood.jpg")
+    Blank=Image.open(r"Images\Blank.png")
+
+    #Black_Wood=Black_Wood.resize((80,80))
+    #White_Wood=White_Wood.resize((80,80))
+    #L_Brown_Wood=L_Brown_Wood.resize((80,80))
+    Blue_Wood=Blue_Wood.resize((80,80))
+    Blank=Blank.resize((80,80))
+
+    '''dictionary of images for easy reference'''
+
+    ##Photos_Black={"B":{"r":ImageTk.PhotoImage(RookBB),
+    ##              "q":ImageTk.PhotoImage(QueenBB),
+    ##              "k":ImageTk.PhotoImage(KingBB),
+    ##              "p":ImageTk.PhotoImage(PawnBB),
+    ##              "b":ImageTk.PhotoImage(BishopBB),
+    ##              "n":ImageTk.PhotoImage(KnightBB)},
+    ##              "W":{"r":ImageTk.PhotoImage(RookWB),
+    ##              "q":ImageTk.PhotoImage(QueenWB),
+    ##              "k":ImageTk.PhotoImage(KingWB),
+    ##              "p":ImageTk.PhotoImage(PawnWB),
+    ##              "b":ImageTk.PhotoImage(BishopWB),
+    ##              "n":ImageTk.PhotoImage(KnightWB)},
+    ##              "blank":ImageTk.PhotoImage(Black_Wood)}
+
+    ##Photos_White={"B":{"r":ImageTk.PhotoImage(RookBW),
+    ##              "q":ImageTk.PhotoImage(QueenBW),
+    ##              "k":ImageTk.PhotoImage(KingBW),
+    ##              "p":ImageTk.PhotoImage(PawnBW),
+    ##              "b":ImageTk.PhotoImage(BishopBW),
+    ##              "n":ImageTk.PhotoImage(KnightBW)},
+    ##              "W":{"r":ImageTk.PhotoImage(RookWW),
+    ##              "q":ImageTk.PhotoImage(QueenWW),
+    ##              "k":ImageTk.PhotoImage(KingWW),
+    ##              "p":ImageTk.PhotoImage(PawnWW),
+    ##              "b":ImageTk.PhotoImage(BishopWW),
+    ##              "n":ImageTk.PhotoImage(KnightWW)},
+    ##              "blank":ImageTk.PhotoImage(White_Wood)}
+
+    ##Photos_L_Brown={"B":{"r":ImageTk.PhotoImage(RookBL),
+    ##              "q":ImageTk.PhotoImage(QueenBL),
+    ##              "k":ImageTk.PhotoImage(KingBL),
+    ##              "p":ImageTk.PhotoImage(PawnBL),
+    ##              "b":ImageTk.PhotoImage(BishopBL),
+    ##              "n":ImageTk.PhotoImage(KnightBL)},
+    ##              "W":{"r":ImageTk.PhotoImage(RookWL),
+    ##              "q":ImageTk.PhotoImage(QueenWL),
+    ##              "k":ImageTk.PhotoImage(KingWL),
+    ##              "p":ImageTk.PhotoImage(PawnWL),
+    ##              "b":ImageTk.PhotoImage(BishopWL),
+    ##              "n":ImageTk.PhotoImage(KnightWL)},
+    ##              "blank":ImageTk.PhotoImage(L_Brown_Wood)}
+
+    root.Photos_Blue={"B":{"r":ImageTk.PhotoImage(RookBBlue),
+                  "q":ImageTk.PhotoImage(QueenBBlue),
+                  "k":ImageTk.PhotoImage(KingBBlue),
+                  "p":ImageTk.PhotoImage(PawnBBlue),
+                  "b":ImageTk.PhotoImage(BishopBBlue),
+                  "n":ImageTk.PhotoImage(KnightBBlue)},
+                 "W":{"r":ImageTk.PhotoImage(RookWBlue),
+                  "q":ImageTk.PhotoImage(QueenWBlue),
+                  "k":ImageTk.PhotoImage(KingWBlue),
+                  "p":ImageTk.PhotoImage(PawnWBlue),
+                  "b":ImageTk.PhotoImage(BishopWBlue),
+                  "n":ImageTk.PhotoImage(KnightWBlue)},
+                 "blank":ImageTk.PhotoImage(Blue_Wood)}
+
+    root.Photos_Transpar={"B":{"r":ImageTk.PhotoImage(RookB),
+                  "q":ImageTk.PhotoImage(QueenB),
+                  "k":ImageTk.PhotoImage(KingB),
+                  "p":ImageTk.PhotoImage(PawnB),
+                  "b":ImageTk.PhotoImage(BishopB),
+                  "n":ImageTk.PhotoImage(KnightB)},
+                 "W":{"r":ImageTk.PhotoImage(RookW),
+                  "q":ImageTk.PhotoImage(QueenW),
+                  "k":ImageTk.PhotoImage(KingW),
+                  "p":ImageTk.PhotoImage(PawnW),
+                  "b":ImageTk.PhotoImage(BishopW),
+                  "n":ImageTk.PhotoImage(KnightW)},
+                 "blank":ImageTk.PhotoImage(Blank)}
+
+    '''list of buttons'''
+    buttons=list()
+
+    '''Press_counter of button'''
+    press_counter=0
+    
+    '''Colour of piece to move'''
+    col="W"
+    
+    '''Other Buttons ,Label ,Canvases'''
+    label=list()
+    
+
+    '''Removed Peices'''
+    removed_images_white=[]
+    removed_images_black=[]
+    def update_removed():
+        nonlocal removed_images_white,removed_images_black
+        
+        start_white=(60,490)
+        count_white=0
+        second_column=0
+
+        start_black=(240,490)
+        count_black=0
+        second_column=0
+
+        for image in removed_images_white:
+            bg_canvas.delete(image)
+
+        for image in removed_images_black:
+            bg_canvas.delete(image)
+                    
+        for piece in removed:
+            if piece.colour=='W':
+                
+                if count_white%2==1:
+                    second_column=1
+                else:
+                    second_column=0
+                    
+                removed_images_white.append(bg_canvas.create_image(
+                        start_white[0]+second_column*80,
+                        start_white[1]+count_white//2*80,
+                        image=root.Photos_Transpar[piece.colour][piece.name]))
+                count_white+=1
+                
+            elif piece.colour=='B':
+                
+                if count_black%2==1:
+                    second_column=1
+                else:
+                    second_column=0
+                    
+                removed_images_black.append(bg_canvas.create_image(
+                        start_black[0]+second_column*80,
+                        start_black[1]+count_black//2*80,
+                        image=root.Photos_Transpar[piece.colour][piece.name]))
+                count_black+=1
+
+    '''Time'''
+    job=None
+    time_white_s=0
+    time_black_s=0
+    time_white='0:00'
+    time_black='0:00'
+    space=''
+    def Time(first_time):
+        nonlocal time_white_s,time_black_s,time_white,time_black,job,space,col 
+        if first_time:
+            if job is not None:
+                root.after_cancel(job)
+            job=root.after(1000,lambda:Time(False))
+        else:
+            if col=='W':
+                
+                time_white_s+=1
+                
+                if time_white_s%60<10:
+                    space='0'
+                else:
+                    space=''
+                    
+                if time_white_s//60>9:
+                    time_white_screen.config(font=("Cabin Sketch",30,'bold'))
+                                                   
+                time_white=str(time_white_s//60)+':'+space+str(time_white_s%60)
+                time_white_screen.config(text=time_white)
+                
+            elif col=='B':
+                
+                time_black_s+=1
+                
+                if time_black_s%60<10:
+                    space='0'
+                else:
+                    space=''
+
+                if time_white_s//60>9:
+                    time_white_screen.config(font=("Cabin Sketch",30,'bold'))
+                
+                time_black=str(time_black_s//60)+':'+space+str(time_black_s%60)
+                time_black_screen.config(text=time_black)
+                
+            job=root.after(1000,lambda:Time(False))
+
+    def load_game(event):
+        '''loads the specified,game'''
+        nonlocal col
+        
+        loaded_game=open(r"Chess Games\Game "+str(loaded_game_no)+".chess","rb")
+        loaded_moves=pickle.load(loaded_game)
+        loaded_game.close()
+        print(loaded_moves)
+        for loaded_move in loaded_moves:
+            global piece_pos
+            self=piece_pos[tuple(loaded_move[0])]
+            move_to_pos=loaded_move[1]
+            
+                
+            if tuple(move_to_pos) in piece_pos:#checks if the piece exists in new position
+                
+                taken_piece=piece_pos[tuple(move_to_pos)]
+                
+                #removes the piece from the list of peices
+                pieces.remove(taken_piece)
+                
+                #Adds the piece to Removed list
+                removed.append(taken_piece)
+                
+                #catalouges the move
+                moves.append([self.position,move_to_pos,self,taken_piece])
+                
+                update_removed()
+            else:
+                moves.append([self.position,move_to_pos,self,0])
+            
+            #deletes the positon of the piece
+            del piece_pos[tuple(self.position)]
+            
+            #changes the positon of the pieces
+            self.position=move_to_pos
+            
+            #makes the new positon move_to_pos
+            piece_pos[tuple(move_to_pos)]=self
+            
+            #increases the move count
+            self.movec+=1
+                              
+##            if self.name=="p" and (move_to_pos[1] in (1,8)):#check if pawn has 
+##                update()                            #reached the final square
+##                self.change(lambda:update(),bg_canvas,pawn_window,pawn_canvas)
+
+            #piece_pos[tuple(loaded_move[0])].move(loaded_move[1],update_removed,update,bg_canvas,pawn_window,pawn_canvas)
+        if len(loaded_moves)%2:
+            col="B"
+        else:
+            col="W"
+        update()
+        ifcheck()
+
+    def back(event):
+        save_file(root)
+        Main_Screen()
+        root.destroy()
+    
+    size=(200,110)
+    screen_size=(500,500)
+
+    '''Background Image'''
+    the_pawn=Image.open(r"Images/The Pawn.jpg")
+    rel_size=0.3
+    the_pawn=the_pawn.resize((int(rel_size*5401),int(rel_size*5184)))
+    the_pawn=ImageTk.PhotoImage(the_pawn)
+
+    '''Board Image'''
+    boardlenght=750
+    boardsize=(boardlenght,boardlenght)
+    game_board=Image.open(r"Images/Game Board 1.png")
+    game_board=game_board.resize(boardsize)
+    game_board=ImageTk.PhotoImage(game_board)
+
+    '''Pawn Canvas Images'''
+    bg_image=Image.open(r"Images/Nice Backdrop.jpg")
+    bg_image=bg_image.resize((screen_size[0]+200,screen_size[1]))
+    bg_image=ImageTk.PhotoImage(bg_image)
+    
+    rook_image=Image.open(r"Images/New Piece/Rook1.png")
+    rook_image=rook_image.resize(size)
+    rook_image=ImageTk.PhotoImage(rook_image)
+    
+    bishop_image=Image.open(r"Images/New Piece/Bishop1.png")
+    bishop_image=bishop_image.resize(size)
+    bishop_image=ImageTk.PhotoImage(bishop_image)
+    
+    knight_image=Image.open(r"Images/New Piece/Knight1.png")
+    knight_image=knight_image.resize(size)
+    knight_image=ImageTk.PhotoImage(knight_image)
+    
+    queen_image=Image.open(r"Images/New Piece/Queen1.png")
+    queen_image=queen_image.resize(size)
+    queen_image=ImageTk.PhotoImage(queen_image)
+
+
+    '''Removed Images'''
+    removed_image=Image.open(r"Images/Removed Pieces.png")
+    removed_image=removed_image.resize((350,400))
+    removed_image=ImageTk.PhotoImage(removed_image)
+    
+    '''Time Image'''
+    time_image=Image.open(r"Images/Time.jpg")
+    time_image=time_image.resize((300,300))
+    time_image=ImageTk.PhotoImage(time_image)
+
+    '''Undo Image'''
+    undo_image=Image.open(r"Images/Undo.png")
+    undo_image=undo_image.resize((50,50))
+    undo_image=ImageTk.PhotoImage(undo_image)
+    
+    '''Redo Image'''
+    redo_image=Image.open(r"Images/Redo.png")
+    redo_image=redo_image.resize((50,50))
+    redo_image=ImageTk.PhotoImage(redo_image)
+
+    '''Back Images'''
+    back_button=Image.open(r"Images\Back.png")
+    back_button=back_button.resize((150,50))
+    back_button=ImageTk.PhotoImage(back_button)
+    
+    '''Canvases'''
+    bg_canvas=Canvas(root,height=height_screen,width=width_screen)
+    bg_canvas.pack()
+
+    font2=("Cabin Sketch",35,"bold")
+    
+    bg_canvas.create_image(0,0,anchor=NW,image=the_pawn)
+    bg_canvas.create_image(width_screen/2,height_screen/2,image=game_board)
+    bg_canvas.create_image(30,25,anchor=NW,image=time_image)
+    bg_canvas.create_image(20,400,anchor=NW,image=removed_image)
+    bg_canvas.create_image(1200,350,anchor=NW,image=undo_image,tags="undo")
+    bg_canvas.create_image(1280,350,anchor=NW,image=redo_image,tags="redo")
+    bg_canvas.create_image(30,340,anchor=NW,image=back_button,tags="back")
+
+    bg_canvas.tag_bind("back",'<ButtonPress-1>',back)
+    
+    board_frame=Frame(root)
+    time_white_screen=Label(root,text=time_white,font=font2,bg='white')
+    time_black_screen=Label(root,text=time_black,font=font2,bg='white')
+    white_name=Label(root,text='White',font=font2,bg='white')
+    black_name=Label(root,text='Black',font=font2,bg='white')
+    Time(True)
+
+    difference=90
+    pawn_frame=Frame(root,width=screen_size[0],height=screen_size[1])
+    pawn_canvas=Canvas(pawn_frame,width=screen_size[0],height=screen_size[1])
+    pawn_canvas.create_image(0,0,anchor=NW,image=bg_image)
+    pawn_canvas.create_text(220,0,anchor=NW,width=250,font=("Cabin Sketch",25,"bold"),
+                            text="Choose which piece for the Pawn to turn into:")
+    pawn_canvas.create_image(0,100,anchor=NW,image=bishop_image,tags='bishop')
+    pawn_canvas.create_image(0,100+difference,anchor=NW,image=knight_image,tags='knight')
+    pawn_canvas.create_image(0,100+difference*2,anchor=NW,image=rook_image,tags='rook')
+    pawn_canvas.create_image(0,100+difference*3,anchor=NW,image=queen_image,tags='queen')
+    pawn_canvas.pack()
+    
+    difference=25
+    
+    board_frame_window = bg_canvas.create_window(width_screen/2+difference,height_screen/2+difference+10, window=board_frame)
+    time_white_window = bg_canvas.create_window(165,50,anchor=NE,window=time_white_screen)
+    time_black_window = bg_canvas.create_window(307,50,anchor=NE,window=time_black_screen)
+    white_window = bg_canvas.create_window(110,200,window=white_name)
+    black_window = bg_canvas.create_window(250,200,window=black_name)
+    pawn_window = bg_canvas.create_window(500,400,window=pawn_frame)
+    bg_canvas.itemconfigure(pawn_window, state='hidden')
+
+    root.protocol("WM_DELETE_WINDOW",lambda:save_file(root))
+
+    
+##    fg_frame=Frame(root)
+##    fg_frame_window = bg_canvas.create_window(0,0,anchor=NW, window=fg_frame)
+    
+##    left_frame=Frame(fg_frame)
+##    left_frame.grid(column=0,row=0)
+##
+##    center_frame=Frame(fg_frame)
+##    center_frame.grid(column=1,row=0)
+##
+##    right_frame=Frame(fg_frame)
+##    right_frame.grid(column=2,row=0)
+
+    
+    
+##    for col_count in [1,2,3,4,5,6,7,8,]:
+##        label.append(Label(center_frame,text=str(col_count)))
+##        label[col_count-1].grid(row=0 ,column=col_count)
+##        
+##    letters=['a','b','c','d','e','f','g','h']
+##
+##    for row_count in range(1,9):
+##        label.append(Label(center_frame,text=letters[row_count-1]))
+##        label[row_count+7].grid(row=row_count ,column=0)
+##        
+##    Undo=Button(center_frame,text="Undo",command=lambda:undo())
+##    Undo.grid(row=8+1,column=0)
+
+    '''
+    Update and Pressed:
+
+        Update and Pressed are the central functions in which the entire
+    game is played thorugh as an interface:
+
+                update():refreshes the screen to basic layout of chess board
+                         (without move markings or blue tiles)
+                pressed():it is called whenever a button is pressed
+                            It has two states:
+                                1)First press:
+                                    whenever a piece is clicked the moves it can
+                                    preform are shown as blue tiles
+                                2)Second Press:
+                                    if one of the blue tiles (possible moves) are clicked the the
+                                    piece is moved to that location
+
+    '''
+    
+    def update():
+        
+        try:
+            for x_coord in range(8):#x_coord is short for x_coordinate
+                
+                for y_coord in range(8): #y_coord is short for y_coordinate
+                    
+    ##                if (x_coordinate+y_coordinate)%2==0:
+    ##                    pass
+    ##                    #Photos=dict(Photos_Black)
+    ##                else:
+    ##                    pass
+    ##                    #Photos=dict(Photos_L_Brown)
+                    
+                    Photos=dict(root.Photos_Transpar)
+                    position=(y_coord+1,x_coord+1)
+                    
+                    try:
+                        buttons[x_coord][y_coord].config(relief="raised",image=Photos[piece_pos[tuple(position)].colour][piece_pos[position].name])
+                    except KeyError:
+                        buttons[x_coord][y_coord].config(relief="raised",image=Photos["blank"])
+
+        except:
+            pass
+
+        
+    def pressed(button_pressed):
+        global piece,check_counter,undone
+        nonlocal press_counter,col
+        if press_counter == 0:
+            
+            button_pos=button_pressed.grid_info()
+            button_row=button_pos["row"]-1
+            button_col=button_pos["column"]-1
+            
+            buttons[button_row][button_col].config(relief="sunken")
+            position=(button_col+1,button_row+1)
+            
+            try:
+                piece=piece_pos[position]
+                
+                if piece.colour!=col:
+                    raise KeyError
+                
+                if piece.move_possible()==list():
+                    press_counter=0
+                    raise KeyError
+
+                if piece.check_if_pinned():
+                    raise KeyError
+                
+                for possible in piece.move_possible():
+                    if bool(check_counter):
+                        if [piece,possible] not in check_counter.incheckmoves():
+                            continue
+                        
+                    [x_button,y_button]=possible
+                    [x_button,y_button]=[x_button-1,y_button-1]
+                    
+                    try:
+                        image=(root.Photos_Blue[piece_pos[tuple(possible)].colour][piece_pos[tuple(possible)].name])
+                        buttons[y_button][x_button].config(image=image)
+                        
+                    except KeyError:
+                        try:
+                            buttons[y_button][x_button].config(image=root.Photos_Blue["blank"])
+                        except:
+                            pass
+                        
+            except KeyError:
+                update()
+                press_counter=0
+            else:
+                press_counter=1
+        else:
+            button_pos=button_pressed.grid_info()
+            button_row=button_pos["row"]-1
+            button_col=button_pos["column"]-1
+            
+            try:
+                piece.move([button_col+1,button_row+1],update_removed,
+                           update,bg_canvas,pawn_window,pawn_canvas)
+                
+            except KeyError:
+                
+                press_counter=0
+                update()
+                pressed(button_pressed)
+                print("Excepted the key error")
+            else:
+                update()
+                undone=[]
+                check_counter=0
+                Time(True)
+                press_counter=0
+                if col=="W":
+                    col="B"
+                elif col=="B":
+                    col="W"
+                ifcheck()
+    
+    for x_button in range(8):
+
+        for y_button in range(8):
+            
+            if (x_button+y_button)%2==0:
+                color="#a3a1a0"
+                #Photos=dict(Photos_Black)
+            else:
+                color="#cfb782"
+                #Photos=dict(Photos_L_Brown)
+                
+            Photos=dict(root.Photos_Transpar)
+
+            if r==0:
+                buttons.append([])
+
+            try:
+                position=(y_button+1,x_button+1)
+                buttons[x_button].append(Button(board_frame,height=80,width=80,bg=color,image=Photos[piece_pos[position].colour][piece_pos[position].name],borderwidth=0))
+                buttons[x_button][y_button].config(command=lambda button=buttons[x_button][y_button]: pressed(button))
+
+            except KeyError:
+                buttons[x_button].append(Button(board_frame,height=80,width=80,bg=color,image=Photos["blank"],borderwidth=0))
+                buttons[x_button][y_button].config(command=lambda button=buttons[x_button][y_button]: pressed(button))
+
+            buttons[x_button][y_button].grid(row=x_button+1, column=y_button+1)
+
+    bg_canvas.tag_bind('undo', '<ButtonPress-1>',lambda event,update_removed=update_removed,
+                       update=update:undo(event,update_removed,update))
+    bg_canvas.tag_bind('redo', '<ButtonPress-1>',lambda event,bg_canvas=bg_canvas,pawn_window=pawn_window,pawn_canvas=pawn_canvas,
+                       update_removed=update_removed,
+                       update=update:redo(event,update_removed,update,bg_canvas,pawn_window,pawn_canvas))
+    if loaded_game_no:
+        load_game(0)
+        
+    root.mainloop()
+
+        
+
+
+def Main_Screen():
+    global prev_games,last_file_no,current_game_no
+    
+    main_screen=Tk() 
+    main_screen.geometry('1000x650')
+    main_screen.geometry("+200+100")
+    main_screen.resizable(False,False)
+    #main_screen.wm_attributes("-alpha",0.5)
+    #main_screen.config(bg='red')
+
+    font1=("verdana",20,"bold")
+
+    topic=Label(main_screen,text="CHESS", font=("Arial Bold", 50))
+    topic.pack()
+
+    the_pawn=Image.open(r"Images/The Pawn.jpg")
+    rel_size=0.2
+    the_pawn=the_pawn.resize((int(rel_size*5401),int(rel_size*5184)))
+    the_pawn=ImageTk.PhotoImage(the_pawn)
+##    label_pawn = Label(main_screen, image=the_pawn)
+##    label_pawn.place(x=0, y=0, relwidth=1, relheight=1)
+    
+    opening_screen=Image.open(r"Images/Opening Screen.png")
+    opening_screen=opening_screen.resize((450,300))
+    opening_screen=ImageTk.PhotoImage(opening_screen)
+
+    chess_name=Image.open(r"Images/Chess Name.jpg")
+    chess_name=chess_name.resize((200,75))
+    chess_name=ImageTk.PhotoImage(chess_name)
+
+    size_of_button=(250,70)
+    
+    resume_game=Image.open(r"Images/Resume Game.png")
+    resume_game=resume_game.resize(size_of_button)
+    resume_game=ImageTk.PhotoImage(resume_game)
+
+    load_game_image=Image.open(r"Images/Load Game.png")
+    load_game_image=load_game_image.resize(size_of_button)
+    load_game_image=ImageTk.PhotoImage(load_game_image)
+
+    New_game=Image.open(r"Images/New Game.png")
+    New_game=New_game.resize(size_of_button)
+    New_game=ImageTk.PhotoImage(New_game)
+
+    blank_button=Image.open(r"Images\Blank Button.png")
+    blank_button=blank_button.resize((200,50))
+    blank_button=ImageTk.PhotoImage(blank_button)
+
+    back_button=Image.open(r"Images\Back.png")
+    back_button=back_button.resize((200,50))
+    back_button=ImageTk.PhotoImage(back_button)
+      
+
+##    label2=Label(main_screen,image=chess_name,borderwidth=0)
+##    label2.place(x=400,y=100)
+    
+    check_game_no=1
+    while True:
+        try:
+            check_file=open(r"Chess Games\Game "+str(check_game_no)+".chess","rb")
+            check_file.close()
+            prev_games.append(check_game_no)
+            check_game_no+=1
+        except:
+            break
+        try:
+            last_file_no=prev_games[-1]
+        except:
+            last_file_no=0
+    print(prev_games)
+    def new_game(*srgs):
+        current_game_no=last_file_no+1
+        main_screen.destroy()
+        Game()
+        
+    def resume(*srgs):
+        global loaded_game_no,current_game_no
+        print("resumed game")
+        current_game_file=open(r"Chess Games\Recent Game no.txt")
+        print(current_game_file.read())
+        current_game_no=int(current_game_file.read())
+        loaded_game_no=current_game_no
+        Game()
+        main_screen.destroy()
+
+    def loadgame(*srgs):
+        print ("loading game")
+        def change_game_no(game_no,event):
+            global loaded_game_no,current_game_no
+            print("change game no")
+            main_screen.destroy()
+            current_game_no=game_no
+            loaded_game_no=game_no
+            Game()
+            
+        canvas1.destroy()
+        load_canvas=Canvas(main_screen,height=650,width=1000)
+        load_canvas.create_image(500,325,image=the_pawn)
+        load_canvas.create_text(500,100,font=("Cabin Sketch",50,"bold"),
+                                fill="white",text="Choose which Game:")
+        diff=70        
+        for game_no in prev_games:
+            load_canvas.create_image(500,200+game_no*diff,image=blank_button,tags="Game"+str(game_no))
+            load_canvas.create_text(500,200+game_no*diff,font=("Cabin Sketch",30,"bold"),
+                                fill="white",text="Game "+str(game_no),tags="Text"+str(game_no))
+        for game_no in prev_games:
+            load_canvas.tag_bind('Game'+str(game_no),'<ButtonPress-1>',
+                                 lambda event,game_no1=prev_games[game_no-1]:change_game_no(game_no1,event))
+            load_canvas.tag_bind('Text'+str(game_no),'<ButtonPress-1>',
+                                 lambda event,game_no1=prev_games[game_no-1]:change_game_no(game_no1,event))
+
+        load_canvas.place(x=0,y=0)
+        
+    canvas1=Canvas(main_screen,height=650,width=1000)
+    canvas1.create_image(500,325,image=the_pawn)
+    canvas1.create_image(500,225,image=opening_screen)
+    canvas1.create_image(500,130,image=chess_name)
+    canvas1.create_image(500,430,image=New_game,tags='newgame')
+    canvas1.create_image(500,500,image=resume_game,tags='resumegame')
+    canvas1.create_image(500,570,image=load_game_image,tags='loadgame')
+    
+    canvas1.tag_bind('newgame', '<ButtonPress-1>', new_game)
+    canvas1.tag_bind('resumegame', '<ButtonPress-1>', resume)
+    canvas1.tag_bind('loadgame', '<ButtonPress-1>', loadgame)
+
+    canvas1.place(x=0,y=0)
+    
+##    button1=Button(main_screen,text="NEW GAME",image=New_game,padx=20,pady=10,
+##                  font= font1 ,command=lambda:new_game(),borderwidth=0,
+##                )
+##    button1.attributes("-alpha", 0.5) 
+##    button1.place(x=400,y=400)
+##    
+##    button2=Button(main_screen,text="RESUME",image=resume_game,padx=20,pady=10,
+##                  font=font1,command=lambda:resume(),borderwidth=0)
+##    button2['bg'] = button2.master['bg']
+##    button2.place(x=400,y=450)
+##    
+##    button3=Button(main_screen,text="LOAD GAME",image=load_game,padx=20,pady=10,
+##                  font=font1,command=lambda:loadgame(),borderwidth=0)
+##
+##    button3.place(x=400,y=500)
+    
+    main_screen.mainloop()
+
+
+'''Main Menu'''
+Main_Screen()
